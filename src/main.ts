@@ -51,7 +51,7 @@ let points = 0;
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 statusPanel.innerHTML = "No points yet...";
 
-function makePit(i: number, j: number) {
+function makePit(i: number, j: number, seed: string) {
   const bounds = leaflet.latLngBounds([
     [
       MERRILL_CLASSROOM.lat + i * TILE_DEGREES,
@@ -65,29 +65,72 @@ function makePit(i: number, j: number) {
 
   const pit = leaflet.rectangle(bounds) as leaflet.Layer;
 
+  let totalCoins = Math.floor(luck([i, j, seed, "totalCoins"].toString()) * 10);
+  let remainingCoins = totalCoins;
+
   pit.bindPopup(() => {
-    let value = Math.floor(luck([i, j, "initialValue"].toString()) * 100);
     const container = document.createElement("div");
+
     container.innerHTML = `
-                <div>There is a pit here at "${i},${j}". It has value <span id="value">${value}</span>.</div>
-                <button id="poke">poke</button>`;
-    const poke = container.querySelector<HTMLButtonElement>("#poke")!;
-    poke.addEventListener("click", () => {
-      value--;
-      container.querySelector<HTMLSpanElement>("#value")!.innerHTML =
-        value.toString();
-      points++;
-      statusPanel.innerHTML = `${points} points accumulated`;
+      <div>There is a pit here at "${i},${j}". It contains <span id="coinValue">${remainingCoins}</span> coins.</div>
+      <button id="collect">Collect coin</button>
+      <button id="deposit">Deposit coin</button>`;
+
+    const collectButton =
+      container.querySelector<HTMLButtonElement>("#collect")!;
+    const depositButton =
+      container.querySelector<HTMLButtonElement>("#deposit")!;
+
+    collectButton.addEventListener("click", () => {
+      if (remainingCoins > 0) {
+        points += 1;
+        statusPanel.innerHTML = `${points} points accumulated`;
+        remainingCoins--;
+
+        container.innerHTML = `
+          <div>There is a pit here at "${i},${j}". It contains <span id="coinValue">${remainingCoins}</span> coins.</div>
+          <button id="collect">Collect coin</button>
+          <button id="deposit">Deposit coin</button>`;
+
+        if (remainingCoins === 0) {
+          container.innerHTML += `<div>All coins collected from this pit.</div>`;
+          collectButton.removeEventListener("click", () => {});
+          depositButton.removeEventListener("click", () => {});
+        }
+      }
     });
+
+    depositButton.addEventListener("click", () => {
+      if (points > 0) {
+        points -= 1;
+        remainingCoins++;
+        statusPanel.innerHTML = `${points} points accumulated`;
+
+        container.innerHTML = `
+          <div>There is a pit here at "${i},${j}". It contains <span id="coinValue">${remainingCoins}</span> coins.</div>
+          <button id="collect">Collect coin</button>
+          <button id="deposit">Deposit coin</button>`;
+      }
+    });
+
     return container;
   });
+
   pit.addTo(map);
 }
 
-for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
-  for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
-    if (luck([i, j].toString()) < PIT_SPAWN_PROBABILITY) {
-      makePit(i, j);
+// Generate cache locations around the player's initial location
+function generateCacheLocations(seed: string) {
+  for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
+    for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
+      const cacheSpawnProbability = luck([seed, i, j].toString());
+      if (cacheSpawnProbability < PIT_SPAWN_PROBABILITY) {
+        makePit(i, j, seed);
+      }
     }
   }
 }
+
+// Use a seed value to generate cache locations and coins
+const seed = "seed";
+generateCacheLocations(seed);
