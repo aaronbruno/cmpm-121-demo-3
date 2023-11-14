@@ -4,7 +4,6 @@ import "./style.css";
 import leaflet from "leaflet";
 import luck from "./luck";
 import "./leafletWorkaround";
-// import Cell from "./board";
 
 // Constants
 const MAP_CONTAINER_ID = "map";
@@ -57,10 +56,14 @@ playerMarker.addTo(map);
 const sensorButton = document.querySelector(`#${SENSOR_BUTTON_ID}`)!;
 sensorButton.addEventListener("click", () => {
   navigator.geolocation.watchPosition((position) => {
-    playerMarker.setLatLng(
-      leaflet.latLng(position.coords.latitude, position.coords.longitude)
+    const newLatLng = leaflet.latLng(
+      position.coords.latitude,
+      position.coords.longitude
     );
-    map.setView(playerMarker.getLatLng());
+    playerMarker.setLatLng(newLatLng);
+
+    // Clear and regenerate cache locations based on the new player position
+    // updateCacheLocations("newSeed", newLatLng);
   });
 });
 
@@ -72,27 +75,29 @@ const statusPanel = document.querySelector<HTMLDivElement>(
 statusPanel.innerHTML = "No points yet...";
 
 // Function to create a pit and handle popups
-function makePit(i: number, j: number, seed: string) {
-  // Use the Cell class to get or create a Cell instance for the given grid position
-  // const gridCell = Cell.getCell(i, j);
-
+function makePit(
+  i: number,
+  j: number,
+  seed: string,
+  playerLatLng: leaflet.LatLng
+) {
   const globalCoordinates = convertToGlobalCoordinates(
-    MERRILL_CLASSROOM.lat + i * TILE_DEGREES,
-    MERRILL_CLASSROOM.lng + j * TILE_DEGREES
+    playerLatLng.lat + i * TILE_DEGREES,
+    playerLatLng.lng + j * TILE_DEGREES
   );
 
   const bounds = leaflet.latLngBounds([
+    [playerLatLng.lat + i * TILE_DEGREES, playerLatLng.lng + j * TILE_DEGREES],
     [
-      MERRILL_CLASSROOM.lat + i * TILE_DEGREES,
-      MERRILL_CLASSROOM.lng + j * TILE_DEGREES,
-    ],
-    [
-      MERRILL_CLASSROOM.lat + (i + 1) * TILE_DEGREES,
-      MERRILL_CLASSROOM.lng + (j + 1) * TILE_DEGREES,
+      playerLatLng.lat + (i + 1) * TILE_DEGREES,
+      playerLatLng.lng + (j + 1) * TILE_DEGREES,
     ],
   ]);
 
   const pit = leaflet.rectangle(bounds) as leaflet.Layer;
+
+  // Add the pit layer to the cacheLayers array
+  cacheLayers.push(pit);
 
   let totalCoins = Math.floor(luck([i, j, seed, "totalCoins"].toString()) * 10);
   let coins: { id: number; collected: boolean }[] = Array.from(
@@ -208,6 +213,7 @@ function makePit(i: number, j: number, seed: string) {
   });
 
   pit.addTo(map);
+  activeCaches.push(pit);
 }
 
 // Function to convert coordinates to global coordinates
@@ -221,18 +227,109 @@ const convertToGlobalCoordinates = (latitude: number, longitude: number) => {
   return { i, j };
 };
 
+// Declare a global array to store cache layers
+const cacheLayers: leaflet.Layer[] = [];
+
+// Array to store active caches on the map
+const activeCaches: leaflet.Layer[] = [];
+
 // Function to generate cache locations around the player's initial location
-function generateCacheLocations(seed: string) {
+function generateCacheLocations(playerLatLng: leaflet.LatLng) {
+  const seed = "seed"; // You can use a fixed seed or a random seed here
+
   for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
     for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
       const cacheSpawnProbability = luck([seed, i, j].toString());
+
+      // Calculate the global coordinates based on the player's position
+      const globalCoordinates = convertToGlobalCoordinates(
+        playerLatLng.lat + i * TILE_DEGREES,
+        playerLatLng.lng + j * TILE_DEGREES
+      );
+
+      // Check if the cache should spawn based on probability
       if (cacheSpawnProbability < PIT_SPAWN_PROBABILITY) {
-        makePit(i, j, seed);
+        // Check if a cache already exists at this location
+        const existingCache = activeCaches.find((cache) => {
+          // Cast the layer to leaflet.Rectangle to use getBounds
+          const rectangleCache = cache as leaflet.Rectangle;
+          const cacheLatLng = rectangleCache.getBounds().getCenter();
+          return (
+            Math.round(cacheLatLng.lat * 1e5) === globalCoordinates.i &&
+            Math.round(cacheLatLng.lng * 1e5) === globalCoordinates.j
+          );
+        });
+
+        if (!existingCache) {
+          // If no existing cache, create a new cache
+          makePit(i, j, seed, playerLatLng);
+        }
       }
     }
   }
 }
 
-// Use a seed value to generate cache locations and coins
-const seed = "seed";
-generateCacheLocations(seed);
+function clearAllCaches() {
+  // Iterate through the cacheLayers array and remove each layer from the map
+  cacheLayers.forEach((layer) => {
+    map.removeLayer(layer);
+  });
+
+  // Clear the cacheLayers array
+  cacheLayers.length = 0;
+}
+
+generateCacheLocations(playerMarker.getLatLng());
+
+// Add event listeners for each direction button
+document
+  .getElementById("north")!
+  .addEventListener("click", () => movePlayer("north"));
+document
+  .getElementById("south")!
+  .addEventListener("click", () => movePlayer("south"));
+document
+  .getElementById("east")!
+  .addEventListener("click", () => movePlayer("east"));
+document
+  .getElementById("west")!
+  .addEventListener("click", () => movePlayer("west"));
+
+// Function to update the player's position based on the movement direction
+function movePlayer(direction: string) {
+  const delta = 0.0001; // Adjust as needed
+
+  switch (direction) {
+    case "north":
+      playerMarker.setLatLng({
+        lat: playerMarker.getLatLng().lat + delta,
+        lng: playerMarker.getLatLng().lng,
+      });
+      break;
+    case "south":
+      playerMarker.setLatLng({
+        lat: playerMarker.getLatLng().lat - delta,
+        lng: playerMarker.getLatLng().lng,
+      });
+      break;
+    case "east":
+      playerMarker.setLatLng({
+        lat: playerMarker.getLatLng().lat,
+        lng: playerMarker.getLatLng().lng + delta,
+      });
+      break;
+    case "west":
+      playerMarker.setLatLng({
+        lat: playerMarker.getLatLng().lat,
+        lng: playerMarker.getLatLng().lng - delta,
+      });
+      break;
+    default:
+      break;
+  }
+
+  clearAllCaches();
+  // Update the cache locations based on the new player position
+  generateCacheLocations(playerMarker.getLatLng());
+  map.setView(playerMarker.getLatLng());
+}
