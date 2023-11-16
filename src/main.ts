@@ -61,9 +61,7 @@ sensorButton.addEventListener("click", () => {
       position.coords.longitude
     );
     playerMarker.setLatLng(newLatLng);
-
-    // Clear and regenerate cache locations based on the new player position
-    // updateCacheLocations("newSeed", newLatLng);
+    map.setView(playerMarker.getLatLng());
   });
 });
 
@@ -234,6 +232,7 @@ const cacheLayers: leaflet.Layer[] = [];
 const activeCaches: leaflet.Layer[] = [];
 
 // Function to generate cache locations around the player's initial location
+// Function to generate cache locations based on the initial positions relative to the player
 function generateCacheLocations(playerLatLng: leaflet.LatLng) {
   const seed = "seed"; // You can use a fixed seed or a random seed here
 
@@ -247,39 +246,61 @@ function generateCacheLocations(playerLatLng: leaflet.LatLng) {
         playerLatLng.lng + j * TILE_DEGREES
       );
 
-      // Check if the cache should spawn based on probability
-      if (cacheSpawnProbability < PIT_SPAWN_PROBABILITY) {
-        // Check if a cache already exists at this location
-        const existingCache = activeCaches.find((cache) => {
-          // Cast the layer to leaflet.Rectangle to use getBounds
-          const rectangleCache = cache as leaflet.Rectangle;
-          const cacheLatLng = rectangleCache.getBounds().getCenter();
-          return (
-            Math.round(cacheLatLng.lat * 1e5) === globalCoordinates.i &&
-            Math.round(cacheLatLng.lng * 1e5) === globalCoordinates.j
-          );
-        });
+      // Check if a cache already exists at this location
+      const existingCache = activeCaches.find((cache) => {
+        // Cast the layer to leaflet.Rectangle to use getBounds
+        const rectangleCache = cache as leaflet.Rectangle;
+        const cacheLatLng = rectangleCache.getBounds().getCenter();
+        return (
+          Math.round(cacheLatLng.lat * 1e5) === globalCoordinates.i &&
+          Math.round(cacheLatLng.lng * 1e5) === globalCoordinates.j
+        );
+      });
 
-        if (!existingCache) {
-          // If no existing cache, create a new cache
-          makePit(i, j, seed, playerLatLng);
-        }
+      // If no existing cache and cache should spawn based on probability
+      if (!existingCache && cacheSpawnProbability < PIT_SPAWN_PROBABILITY) {
+        // Create a new cache
+        makePit(i, j, seed, playerLatLng);
       }
     }
   }
 }
 
-function clearAllCaches() {
-  // Iterate through the cacheLayers array and remove each layer from the map
-  cacheLayers.forEach((layer) => {
-    map.removeLayer(layer);
-  });
+function clearCachesOutsideNeighborhood(playerLatLng: leaflet.LatLng) {
+  // Iterate through the activeCaches array and remove caches outside the updated neighborhood
+  activeCaches.forEach((cache) => {
+    // Cast the layer to leaflet.Rectangle to use getBounds
+    const rectangleCache = cache as leaflet.Rectangle;
+    const cacheLatLng = rectangleCache.getBounds().getCenter();
 
-  // Clear the cacheLayers array
-  cacheLayers.length = 0;
+    // Calculate the difference in tiles between the cache and the player's current position
+    const tileDifferenceX = Math.round(
+      (cacheLatLng.lng - playerLatLng.lng) / TILE_DEGREES
+    );
+    const tileDifferenceY = Math.round(
+      (cacheLatLng.lat - playerLatLng.lat) / TILE_DEGREES
+    );
+
+    // Check if the cache is outside the updated neighborhood
+    if (
+      Math.abs(tileDifferenceX) > NEIGHBORHOOD_SIZE ||
+      Math.abs(tileDifferenceY) > NEIGHBORHOOD_SIZE
+    ) {
+      map.removeLayer(cache);
+
+      // Remove the cache from the activeCaches array
+      const cacheIndex = activeCaches.indexOf(cache);
+      if (cacheIndex !== -1) {
+        activeCaches.splice(cacheIndex, 1);
+      }
+    }
+  });
 }
 
+// Initial generation of cache's based on player's spawn location
 generateCacheLocations(playerMarker.getLatLng());
+
+// const playerInitialLocation = playerMarker.getLatLng();
 
 // Add event listeners for each direction button
 document
@@ -328,8 +349,10 @@ function movePlayer(direction: string) {
       break;
   }
 
-  clearAllCaches();
+  // Clear caches outside the updated neighborhood
+  clearCachesOutsideNeighborhood(playerMarker.getLatLng());
+
   // Update the cache locations based on the new player position
-  generateCacheLocations(playerMarker.getLatLng());
+  // generateCacheLocations(playerInitialLocation);
   map.setView(playerMarker.getLatLng());
 }
