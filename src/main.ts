@@ -38,6 +38,16 @@ const map = leaflet.map(mapContainer, {
   scrollWheelZoom: false,
 });
 
+// Declare a global array to store player's movement history
+const playerMovementHistory: leaflet.LatLng[] = [];
+
+// Create a polyline to represent the player's movement history
+const playerMovementPolyline = leaflet
+  .polyline(playerMovementHistory, {
+    color: "#8B0000",
+  })
+  .addTo(map);
+
 // Add OpenStreetMap tiles to the map
 leaflet
   .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -132,7 +142,6 @@ function makePit(
             const globalCoinKey = `${globalCoordinates.i}-${globalCoordinates.j}-${coin.id}`;
             globalInventory[globalCoinKey] = coin;
 
-            // Update the popup content after collecting the coin
             updatePopupContent();
           }
         });
@@ -167,11 +176,7 @@ function makePit(
         points -= 1;
         statusPanel.innerHTML = `${points} points accumulated`;
 
-        // Update the popup content after depositing the coin
         updatePopupContent();
-
-        // Close the popup after depositing the coin (optional)
-        pit.closePopup();
       }
     });
 
@@ -196,7 +201,6 @@ function makePit(
             const globalCoinKey = `${globalCoordinates.i}-${globalCoordinates.j}-${coin.id}`;
             globalInventory[globalCoinKey] = coin;
 
-            // Update the popup content after collecting the coin
             updatePopupContent();
           }
         });
@@ -231,7 +235,6 @@ const cacheLayers: leaflet.Layer[] = [];
 // Array to store active caches on the map
 const activeCaches: leaflet.Layer[] = [];
 
-// Function to generate cache locations around the player's initial location
 // Function to generate cache locations based on the initial positions relative to the player
 function generateCacheLocations(playerLatLng: leaflet.LatLng) {
   const seed = "seed"; // You can use a fixed seed or a random seed here
@@ -297,6 +300,66 @@ function clearCachesOutsideNeighborhood(playerLatLng: leaflet.LatLng) {
   });
 }
 
+// Function to find a cache based on global coordinates
+function findCacheByGlobalCoordinates(
+  i: number,
+  j: number
+): leaflet.Layer | undefined {
+  return activeCaches.find((cache) => {
+    // Cast the layer to leaflet.Rectangle to use getBounds
+    const rectangleCache = cache as leaflet.Rectangle;
+    const cacheLatLng = rectangleCache.getBounds().getCenter();
+    return (
+      Math.round(cacheLatLng.lat * 1e5) === i &&
+      Math.round(cacheLatLng.lng * 1e5) === j
+    );
+  });
+}
+
+// Function to update the popup content of a cache
+function updateCachePopup(cache: leaflet.Layer) {
+  // Add your logic to update the popup content here
+  cache;
+}
+
+function resetGame() {
+  Object.values(globalInventory).forEach((coin) => {
+    if (coin.collected) {
+      const { i, j } = convertToGlobalCoordinates(
+        playerMarker.getLatLng().lat,
+        playerMarker.getLatLng().lng
+      );
+      const homeCache = findCacheByGlobalCoordinates(i, j);
+
+      coin.collected = false;
+
+      points -= 1;
+      statusPanel.innerHTML = `${points} points accumulated`;
+
+      // Update the popup content after depositing the coin
+      if (homeCache) {
+        updateCachePopup(homeCache);
+      }
+    }
+  });
+
+  // Step 2: Clear the player's movement history
+  playerMovementHistory.length = 0;
+
+  // Update the polyline with the cleared movement history
+  playerMovementPolyline.setLatLngs(playerMovementHistory);
+
+  // Step 3: Clear all active caches on the map
+  activeCaches.forEach((cache) => map.removeLayer(cache));
+  activeCaches.length = 0;
+
+  // Step 4: Generate new cache locations based on the player's spawn location
+  generateCacheLocations(playerMarker.getLatLng());
+
+  // Step 5: Center the map on the player's initial location
+  map.setView(playerMarker.getLatLng());
+}
+
 // Initial generation of cache's based on player's spawn location
 generateCacheLocations(playerMarker.getLatLng());
 
@@ -315,6 +378,8 @@ document
 document
   .getElementById("west")!
   .addEventListener("click", () => movePlayer("west"));
+
+document.getElementById("reset")!.addEventListener("click", resetGame);
 
 // Function to update the player's position based on the movement direction
 function movePlayer(direction: string) {
@@ -348,6 +413,12 @@ function movePlayer(direction: string) {
     default:
       break;
   }
+
+  // Add the current player position to the movement history
+  playerMovementHistory.push(playerMarker.getLatLng());
+
+  // Update the polyline with the new movement history
+  playerMovementPolyline.setLatLngs(playerMovementHistory);
 
   // Clear caches outside the updated neighborhood
   clearCachesOutsideNeighborhood(playerMarker.getLatLng());
